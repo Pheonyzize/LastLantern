@@ -152,6 +152,17 @@
 /turf/attack_hand(mob/user)
 	//QOL feature, clicking on turf can toggle doors, unless pulling something
 	if(!user.pulling)
+		// CHOMPEnable Start
+		if(istype(fire, /obj/fire/lingering)) // Allow patting out lingering fires
+			fire.firelevel -= rand(0.1, 1.1)
+			if(fire.firelevel <= 0)
+				visible_message("\The [user] extinguishes the flames!")
+				fire = null
+				qdel(fire)
+			else
+				visible_message("\The [user] tries to extinguish the flames!")
+			return TRUE
+		// CHOMPEnable End
 		var/obj/machinery/door/airlock/AL = locate(/obj/machinery/door/airlock) in src.contents
 		if(AL)
 			AL.attack_hand(user)
@@ -588,8 +599,9 @@
 	if(M.slip_timer || M.slipping)
 		if(lube & SLIDE_RECURSIVE)
 			playsound(M.loc, 'sound/misc/slip.ogg', 25, 1, -1)
-			deltimer(M.slip_timer) //Remove it here so it can be set anew
-			M.slip_timer = null
+			if(M.slip_timer)
+				deltimer(M.slip_timer) //Remove it here so it can be set anew
+				M.slip_timer = null
 			slip_dist = max(M.slipping, slip_dist) //Extend Slips
 		else //Slipping, slip isnt recursive, slip is blocked.
 			return FALSE
@@ -601,11 +613,15 @@
 		if(prob(100 / max(slip_dist, 1))) // Longer slip distance is, the less of a chance you have to
 			if(world.time >= M.next_emote)
 				M.emote("sflip")
-				M.slip_timer = VARSET_IN(M, slip_timer, null, 2)
+				M.slip_timer = addtimer(CALLBACK(M, TYPE_PROC_REF(/mob, finish_slip)), 2, TIMER_DELETE_ME|TIMER_STOPPABLE)
 				M.slipping = 0
 				// Because we're stopping here, but we're still slipping, send the signal for it now.
-				SEND_SIGNAL(M, COMSIG_ON_LIVING_SLIP, M, weaken_amount, slipped_on, lube, slip_dist)
+				SEND_SIGNAL(M, COMSIG_ON_LIVING_SLIP, M, weaken_amount, slipped_on, lube, slip_dist, force_drop)
 				return TRUE
+
+	// Gets called here so that you dont have issues with non-recursive slips glugging up mob information with stuff about the current slip.
+	// If you need that information, you should be able to extrapolate it from the parameters forwarded to the signal.
+	SEND_SIGNAL(M, COMSIG_ON_LIVING_SLIP, M, weaken_amount, slipped_on, lube, slip_dist, force_drop)
 
 	//At this point, we're getting into doing the actual slip
 	if(force_drop)
@@ -634,9 +650,8 @@
 	if(slip_dist > 0)
 		M.slip_timer = addtimer(CALLBACK(src, PROC_REF(slip_slide), M, slip_dist, olddir, lube), 1, TIMER_DELETE_ME|TIMER_STOPPABLE)
 	else
-		M.slip_timer = VARSET_IN(M, slip_timer, null, 2) //Non sliding slip time
+		M.slip_timer = addtimer(CALLBACK(M, TYPE_PROC_REF(/mob, finish_slip)), 2, TIMER_DELETE_ME|TIMER_STOPPABLE) //Non sliding slip time
 
-	SEND_SIGNAL(M, COMSIG_ON_LIVING_SLIP, M, weaken_amount, slipped_on, lube, slip_dist)
 	/* // Im doing my own thing, maybe forced movement can be a thing later, though.
 	if(lube & SLIDE)
 		new /datum/forced_movement(M, get_ranged_target_turf(M, olddir, 4), 1, FALSE, CALLBACK(C, PROC_REF(spin), 1, 1))
@@ -660,7 +675,8 @@
 	if(slip_dist <= 0 || !isturf(M.loc))
 		if(M.slip_timer)
 			deltimer(M.slip_timer)
-		M.slip_timer = VARSET_IN(M, slip_timer, null, 2)
+			M.slip_timer = null
+		M.slip_timer = addtimer(CALLBACK(M, TYPE_PROC_REF(/mob, finish_slip)), 2, TIMER_DELETE_ME|TIMER_STOPPABLE)
 		M.slipping = 0 //Just in case.
 		return
 
@@ -672,7 +688,8 @@
 	if(!step(M, dir)) //Do the movement. if it fails, the slide ends here.
 		if(M.slip_timer)
 			deltimer(M.slip_timer)
-		M.slip_timer = VARSET_IN(M, slip_timer, null, 2) //"Slipping" after the slide ends for the purposes of recursive slip catches
+			M.slip_timer = null
+		M.slip_timer = addtimer(CALLBACK(M, TYPE_PROC_REF(/mob, finish_slip)), 2, TIMER_DELETE_ME|TIMER_STOPPABLE) //"Slipping" after the slide ends for the purposes of recursive slip catches
 		M.slipping = 0
 		return
 
